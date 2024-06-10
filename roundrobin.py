@@ -152,6 +152,8 @@ class Bot:
                     msg = msg["syncMessage"]
                 if "sentMessage" in msg:
                     msg = msg["sentMessage"]
+                if "dataMessage" in msg:
+                    msg = msg["dataMessage"]
                 if "message" in msg and "groupInfo" in msg and msg["groupInfo"]["groupId"] == self.group_id:
                     message: str = msg["message"].lower().strip()
                     if match_cmd(message, self.cmd_not_today):
