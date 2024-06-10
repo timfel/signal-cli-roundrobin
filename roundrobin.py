@@ -136,6 +136,7 @@ class Bot:
                 args = ["send", "-g", self.group_id, "--notify-self", "-m", bot_response]
                 if "@mention" in bot_response and next_member:
                     args += ["--mention", mention_user_in_msg(next_member, bot_response)]
+                bot_response = ""
                 cmd(*args)
             if must_draw:
                 next_member = self.choose_next()
