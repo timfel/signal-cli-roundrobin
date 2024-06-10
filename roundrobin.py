@@ -43,12 +43,6 @@ def cmd(*args):
         return None
 
 
-def mention_user_in_msg(user, msg):
-    start = msg.index("@mention")
-    length = len("@mention")
-    return f"{start}:{length}:{user}"
-
-
 class Bot:
     def __init__(self,
         groupname: str,
@@ -128,6 +122,15 @@ class Bot:
         must_draw = True
         bot_response: str = ""
         end_time = time.time() + self.minutes_to_listen * 60
+
+        def mention_user_in_msg(user, msg):
+            start = msg.index("@mention")
+            length = len("@mention")
+            return f"{start}:{length}:{user}"
+
+        def match_cmd(msg, cmd):
+            return re.sub(r"[^\w]", "", msg) == re.sub(r"[^\w]", "", cmd)
+
         while time.time() < end_time:
             if bot_response:
                 args = ["send", "-g", self.group_id, "--notify-self", "-m", bot_response]
@@ -141,7 +144,7 @@ class Bot:
                     cmd("send", "-g", self.group_id, "--notify-self", "-m", self.msg_no_one)
                     break
                 cmd("send", "-g", self.group_id, "--notify-self", "-m", self.msg_token, "--mention", mention_user_in_msg(next_member, self.msg_token))
-            messages = cmd("receive", "-t", "1", "--ignore-attachments", "--ignore-stories")
+            messages = cmd("receive", "-t", "1", "--ignore-attachments", "--ignore-stories") or []
             for msg in messages:
                 if "envelope" in msg:
                     msg = msg["envelope"]
@@ -151,18 +154,18 @@ class Bot:
                     msg = msg["sentMessage"]
                 if "message" in msg and "groupInfo" in msg and msg["groupInfo"]["groupId"] == self.group_id:
                     message: str = msg["message"].lower().strip()
-                    if message.startswith(self.cmd_not_today):
+                    if match_cmd(message, self.cmd_not_today):
                         if next_member in self.served_members:
                             self.served_members.remove(next_member)
                         end_time = 0 # breaks out of outer loop
                         break # break out of message handling
-                    elif message.startswith(self.cmd_draw_again):
+                    elif match_cmd(message, self.cmd_draw_again):
                         self.currently_unavailable_members.add(next_member)
                         if next_member in self.served_members:
                             self.served_members.remove(next_member)
                         bot_response = self.msg_draw_again
                         must_draw = True
-                    elif message.startswith(self.cmd_ignore):
+                    elif match_cmd(message, self.cmd_ignore):
                         self.ignored_members.add(next_member)
                         if next_member in self.served_members:
                             self.served_members.remove(next_member)
