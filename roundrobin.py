@@ -5,6 +5,7 @@ import subprocess
 import json
 import random
 import time
+import re
 
 # BEGIN: CONFIGURATION
 PHONENUMBER = "+49123456789"
