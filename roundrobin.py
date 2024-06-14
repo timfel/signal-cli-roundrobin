@@ -103,7 +103,7 @@ class Bot:
             return None
         random.shuffle(pending_members)
         next_member = pending_members[0]
-        self.served_members.add(0)
+        self.served_members.add(next_member)
         return next_member
 
     def run(self):
