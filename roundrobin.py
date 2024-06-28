@@ -101,12 +101,7 @@ class Bot:
             self.served_members.clear()
         if not pending_members:
             return None
-        print(f"{pending_members=}")
-        random.shuffle(pending_members)
-        print(f"{pending_members=}")
-        random.shuffle(pending_members)
-        print(f"{pending_members=}")
-        next_member = pending_members[0]
+        next_member = random.choice(pending_members)
         if next_member not in self.served_members:
             self.served_members.append(next_member)
         return next_member
