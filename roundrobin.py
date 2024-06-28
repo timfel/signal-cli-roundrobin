@@ -10,7 +10,7 @@ import re
 # BEGIN: CONFIGURATION
 PHONENUMBER = "+49123456789"
 DESIRED_GROUP = "Test group"
-MINUTES_TO_LISTEN_FOR_ANSWERS = 60 * 4
+MINUTES_TO_LISTEN_FOR_ANSWERS = 60 * 6
 TOKEN_GOES_TO = "Heute geht das Essen an @mention. -- Euer Essensverteiler-Bot"
 NO_ONE_TO_DRAW = "Heute scheint niemand da zu sein. -- Euer Essensverteiler-Bot"
 DRAW_AGAIN_CMD = "lieber bot: neu ziehen"
@@ -67,12 +67,12 @@ class Bot:
         self.cmd_ignore = cmd_ignore
         self.msg_ignore = msg_ignore
         self.minutes_to_listen = minutes_to_listen
-
         self.db = os.path.join(os.path.dirname(__file__), f"{self.groupname}.json")
+
+    def _initialize_for_run(self):
         if not os.path.exists(self.db):
             with open(self.db, "w", encoding="utf-8") as f:
                 json.dump({"ignoredMembers": [], "servedMembers": []}, f)
-
         cmd("receive", "-t", "1", "--ignore-attachments", "--ignore-stories")
         groups = cmd("listGroups", "-d")
         interesting_groups: list[dict] = [g for g in groups if g["name"] == self.groupname]
@@ -91,24 +91,30 @@ class Bot:
         with open(self.db, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.ignored_members: set[str] = set(data["ignoredMembers"])
-        self.served_members: set[str] = set(data["servedMembers"])
+        self.served_members: list[str] = data["servedMembers"]
         self.currently_unavailable_members: set[str] = set()
 
     def choose_next(self) -> str:
-        pending_members = list(self.group_members - self.served_members - self.currently_unavailable_members - self.ignored_members)
+        pending_members = list(self.group_members - set(self.served_members) - self.currently_unavailable_members - self.ignored_members)
         if not pending_members:
             pending_members = list(self.group_members - self.currently_unavailable_members - self.ignored_members)
             self.served_members.clear()
         if not pending_members:
             return None
+        print(f"{pending_members=}")
         random.shuffle(pending_members)
+        print(f"{pending_members=}")
+        random.shuffle(pending_members)
+        print(f"{pending_members=}")
         next_member = pending_members[0]
-        self.served_members.add(next_member)
+        if next_member not in self.served_members:
+            self.served_members.append(next_member)
         return next_member
 
-    def run(self):
+    def run(self, resume=""):
+        self._initialize_for_run()
         try:
-            self._send_and_receive()
+            self._send_and_receive(resume=resume)
         finally:
             with open(self.db, "w", encoding="utf-8") as f:
                 json.dump(
@@ -119,9 +125,16 @@ class Bot:
                     f,
                 )
 
-    def _send_and_receive(self):
-        must_draw = True
-        bot_response: str = ""
+    def _send_and_receive(self, resume=""):
+        must_draw = (resume != "listen")
+        if self.served_members:
+            next_member = self.served_members[-1]
+        else:
+            next_member = None
+        if resume != "listen":
+            bot_response = resume
+        else:
+            bot_response = ""
         end_time = time.time() + self.minutes_to_listen * 60
 
         def mention_user_in_msg(user, msg):
@@ -132,12 +145,17 @@ class Bot:
         def match_cmd(msg, cmd):
             return re.sub(r"[^\w]", "", msg) == re.sub(r"[^\w]", "", cmd)
 
+        print(f"Last served: {next_member}")
+        print(f"Drawing now? {must_draw}")
+        print(f"Starting with bot response? '{bot_response}'")
+
         while time.time() < end_time:
             if bot_response:
                 args = ["send", "-g", self.group_id, "--notify-self", "-m", bot_response]
                 if "@mention" in bot_response and next_member:
                     args += ["--mention", mention_user_in_msg(next_member, bot_response)]
                 bot_response = ""
+                next_member = None
                 cmd(*args)
             if must_draw:
                 next_member = self.choose_next()
@@ -157,7 +175,7 @@ class Bot:
                 if "dataMessage" in msg:
                     msg = msg["dataMessage"]
                 if "message" in msg and "groupInfo" in msg and msg["groupInfo"]["groupId"] == self.group_id:
-                    message: str = msg["message"].lower().strip()
+                    message: str = (msg["message"] or "").lower().strip()
                     if match_cmd(message, self.cmd_not_today):
                         if next_member in self.served_members:
                             self.served_members.remove(next_member)
@@ -179,6 +197,50 @@ class Bot:
 
 
 if __name__ == "__main__":
+    import sys
+    if "--help" in sys.argv:
+        print(f"""
+        This command uses the signal-cli program to go through a group
+        and let each member of the group be mentioned somehow until
+        everyone had a turn. This can be used to assign tasks or something
+        to everyone in a group. There's some limited interaction in that
+        the group can answer things and then the bot will for example
+        draw someone else or ignore the person that was drawn for the future
+        or just stop drawing for today. The commands and messages for the bot
+        have to be just put in the top of the source file, as does the
+        account number for the Signal account that is used for the bot and
+        the name of the group.
+
+        Currently, this is configured as:
+        {PHONENUMBER=}
+        {DESIRED_GROUP=}
+        {TOKEN_GOES_TO=}
+        {NO_ONE_TO_DRAW=}
+        {DRAW_AGAIN_CMD=}
+        {DRAW_AGAIN_ANSWER=}
+        {NOT_TODAY_CMD=}
+        {NOT_TODAY_ANSWER=}
+        {IGNORE_MEMBER_AND_DRAW_AGAIN_CMD=}
+        {IGNORE_MEMBER_AND_DRAW_AGAIN_ANSWER=}
+        {MINUTES_TO_LISTEN_FOR_ANSWERS=}
+
+        The program doesn't really have options, but of course it can crash.
+        If you want to "resume" after a crash, you can pass a single argument
+        (in quotes) and that will be taken as the command the bot received
+        in the chat. So for example, if someone was drawn, then someone sent
+        a command to draw again, but the bot crashed, you run this script
+        like 
+            {__file__} "{DRAW_AGAIN_CMD}"
+        and then the bot will send that message before drawing like normal. 
+        Any custom message can also be sent.
+        
+        The special message "listen" can be passed as argument, and then
+        the bot will not send anything, not draw immediately, just listen.
+        """)
+        sys.exit(0)
+    resume = ""
+    if len(sys.argv) > 1:
+        resume = sys.argv[1]
     bot = Bot(
         groupname=DESIRED_GROUP,
         msg_token=TOKEN_GOES_TO,
@@ -191,4 +253,4 @@ if __name__ == "__main__":
         msg_ignore=IGNORE_MEMBER_AND_DRAW_AGAIN_ANSWER,
         minutes_to_listen=MINUTES_TO_LISTEN_FOR_ANSWERS,
     )
-    bot.run()
+    bot.run(resume=resume)
